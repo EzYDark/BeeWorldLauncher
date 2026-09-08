@@ -130,12 +130,9 @@ pub fn install(paths: &crate::app::AppPaths, ctx: &Context) -> Result<String, Fa
             "An unfinished server download exists. Your running version is unchanged. Rename the staging folders before retrying.",
         ));
     }
-    dependencies::ensure_tools(paths, ctx, &[0, 1])?;
     let mut settings = Versions::read(paths)?;
-    let revision = match settings.selected(Target::Server) {
-        Some(v) => v.clone(),
-        None => crate::versions::latest()?,
-    };
+    let revision = crate::versions::desired(paths, Target::Server)?;
+    dependencies::ensure_tools(paths, ctx, &[0, 1])?;
     crate::versions::validate_sha(&revision.sha)?;
     system::checked(
         git(paths, &root)?

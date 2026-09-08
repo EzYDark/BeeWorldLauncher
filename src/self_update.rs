@@ -20,7 +20,7 @@ pub fn check() -> Result<Option<Release>, Failure> {
         .https_only(true)
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(25))
-        .user_agent("BeeWorldLauncher/0.2.0")
+        .user_agent(concat!("BeeWorldLauncher/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|e| Failure::plain(e.to_string()))?;
     let response = client

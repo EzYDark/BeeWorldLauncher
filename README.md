@@ -10,7 +10,7 @@ Open `BeeWorldLauncher.exe`. Choose portable mode, install shortcuts, or server 
 - **Offline accounts:** choose Tools & settings > Use offline accounts. The next download or launch uses a separate, verified Prism offline-account fork that supports a player name without a Microsoft account. Microsoft mode uses official Prism.
 - **Server:** choose server only during setup, or Server from the tools menu. Download the server, accept the linked Minecraft EULA, then start it. No Prism or client installation is needed for server-only use.
 - **Console:** view live server logs, type commands and press Enter. Stop server saves and closes it. Page Up or the wheel pauses following the latest output; End resumes it. Stop the server before closing the launcher.
-- **Versions:** game and server have separate selectors. Published BeeWorld tags appear here. Current pack follows `master`. Selecting a version saves a preference; downloading it still needs confirmation.
+- **Versions:** game and server have separate selectors. Only published stable BeeWorld releases appear here. Latest stable release follows the newest publication date; selecting an older release pins it. Plain tags, drafts, prereleases and unreleased branch changes are excluded. Downloads use the release tag's exact commit and its Git LFS files, not the current branch. Selecting a version saves a preference; downloading it still needs confirmation.
 
 Internet is needed for initial downloads. Offline account mode does not provide access to servers that require Microsoft authentication. Server authentication remains enabled by default.
 
@@ -47,7 +47,7 @@ Opt-in integration tests and current verification limits are documented in [VERI
 
 For launcher updates, publish a stable GitHub Release such as `v0.3.0`, with `BeeWorldLauncher.exe` attached. Its numeric version must exceed the running Cargo package version. The updater requires GitHub's SHA-256 asset digest and verifies the download before replacing the executable after exit. It keeps the previous executable as `.update-old`.
 
-Publish pack version tags in **EzYDark/BeeWorld**, independently of launcher releases. Until those tags exist, choose Current pack.
+Publish a stable GitHub Release with its version tag in **EzYDark/BeeWorld**, independently of launcher releases. A tag alone is not enough. No attached ZIP is required: the launcher installs the repository snapshot at that release tag, including Git LFS files. Until a stable release exists, new game/server downloads and updates stop; an already installed version can still be started. Saved selections must still match a published release's tag and commit before downloading.
 
 ## Optional command line
 

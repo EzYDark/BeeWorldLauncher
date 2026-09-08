@@ -108,8 +108,9 @@ pub fn execute(action: Action, paths: &AppPaths, ctx: &Context) -> Result<String
     match action {
         Action::Setup => {
             ensure_closed(paths, ctx)?;
+            let revision = crate::versions::desired(paths, crate::versions::Target::Game)?;
             dependencies::ensure(paths, ctx)?;
-            update(paths, &tx, ctx)?;
+            update(paths, &tx, ctx, revision)?;
             prepare_profile(paths)?;
             fs::write(paths.data_dir.join("setup-complete"), "1\n")?;
             save_launcher_choice(
@@ -143,8 +144,9 @@ pub fn execute(action: Action, paths: &AppPaths, ctx: &Context) -> Result<String
         }
         Action::Update => {
             ensure_closed(paths, ctx)?;
+            let revision = crate::versions::desired(paths, crate::versions::Target::Game)?;
             dependencies::ensure_tools(paths, ctx, &[0, 1])?;
-            update(paths, &tx, ctx)?;
+            update(paths, &tx, ctx, revision)?;
             Ok("Updated. Your previous game is saved as a backup.".into())
         }
         Action::Restore => {
@@ -299,18 +301,36 @@ pub fn normalize_repo_url(url: &str) -> String {
         .trim_end_matches(".git")
         .to_owned()
 }
-fn update(paths: &AppPaths, tx: &Transaction, ctx: &Context) -> Result<(), Failure> {
-    update_from(paths, tx, ctx, REPO_URL)
+fn update(
+    paths: &AppPaths,
+    tx: &Transaction,
+    ctx: &Context,
+    revision: crate::versions::Revision,
+) -> Result<(), Failure> {
+    update_revision_from(paths, tx, ctx, REPO_URL, Some(revision))
 }
 
+#[cfg(test)]
 fn update_from(
     paths: &AppPaths,
     tx: &Transaction,
     ctx: &Context,
     repository: &str,
 ) -> Result<(), Failure> {
+    let selected = crate::versions::Versions::read(paths)?
+        .selected(crate::versions::Target::Game)
+        .cloned();
+    update_revision_from(paths, tx, ctx, repository, selected)
+}
+
+fn update_revision_from(
+    paths: &AppPaths,
+    tx: &Transaction,
+    ctx: &Context,
+    repository: &str,
+    selected: Option<crate::versions::Revision>,
+) -> Result<(), Failure> {
     let mut versions = crate::versions::Versions::read(paths)?;
-    let selected = versions.selected(crate::versions::Target::Game).cloned();
     if let Some(revision) = &selected {
         crate::versions::validate_sha(&revision.sha)?;
     }
@@ -377,13 +397,13 @@ fn update_from(
             )?;
         }
     } else {
-        system::checked(
-            git(paths, &tx.root)?
-                .args(["clone", "--branch", BRANCH, "--single-branch", repository])
-                .arg(&stage),
-            "Downloading BeeWorld",
-            ctx,
-        )?;
+        let mut command = git(paths, &tx.root)?;
+        if selected.is_some() {
+            command.args(["clone", "--no-checkout", repository]);
+        } else {
+            command.args(["clone", "--branch", BRANCH, "--single-branch", repository]);
+        }
+        system::checked(command.arg(&stage), "Downloading BeeWorld", ctx)?;
     }
     if let Some(revision) = &selected {
         system::checked(
@@ -716,7 +736,23 @@ mod integration_tests {
         );
         let tx = Transaction::new(&paths.instance_dir).unwrap();
         let first_sha = run_git(&upstream, &["rev-parse", "HEAD"]).trim().to_owned();
+        let mut initial_selection = crate::versions::Versions::read(&paths).unwrap();
+        initial_selection
+            .select(
+                crate::versions::Target::Game,
+                Some(crate::versions::Revision {
+                    sha: first_sha.clone(),
+                    label: "v1 fixture".into(),
+                    date: String::new(),
+                }),
+            )
+            .unwrap();
+        initial_selection.save(&paths).unwrap();
         update_from(&paths, &tx, &ctx, &upstream.to_string_lossy()).unwrap();
+        initial_selection
+            .select(crate::versions::Target::Game, None)
+            .unwrap();
+        initial_selection.save(&paths).unwrap();
         assert_eq!(
             fs::read(paths.instance_dir.join("minecraft/mods/fixture.jar")).unwrap(),
             b"first binary payload"

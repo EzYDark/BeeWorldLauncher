@@ -209,7 +209,7 @@ impl Model {
             ],
             Screen::LoadingVersions(_) => vec![("Back".into(), Choice::Back)],
             Screen::Versions(_, versions) => {
-                let mut choices = vec![("Current pack".into(), Choice::PickVersion(0))];
+                let mut choices = vec![("Latest stable release".into(), Choice::PickVersion(0))];
                 choices.extend(
                     versions
                         .iter()
@@ -1001,7 +1001,7 @@ fn draw(frame: &mut Frame<'_>, model: &mut Model, paths: &AppPaths) {
         Screen::Console => model.server_output.clone(),
         Screen::UpdateNotice(_) => "A newer BeeWorld pack is available. Install it now or keep playing this version.".into(),
         Screen::LoadingVersions(_) => "Checking published versions. Please wait.".into(),
-        Screen::Versions(_, versions) => if versions.is_empty() { "No version tags published yet. Current pack is available.".into() } else { "Choose a version. Installation requires a separate confirmation.".into() },
+        Screen::Versions(_, versions) => if versions.is_empty() { "No stable releases published yet. Your installed version is kept.".into() } else { "Choose a stable release. Installation requires a separate confirmation.".into() },
         Screen::Welcome | Screen::Installation => if model.existing {
             "Your existing game was found.".to_owned()
         } else {

@@ -93,97 +93,101 @@ pub fn validate_sha(sha: &str) -> Result<(), Failure> {
     }
     Ok(())
 }
-pub fn catalogue() -> Result<Vec<Revision>, Failure> {
-    let client = reqwest::blocking::Client::builder()
+fn client() -> Result<reqwest::blocking::Client, Failure> {
+    reqwest::blocking::Client::builder()
         .https_only(true)
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(25))
-        .user_agent("BeeWorldLauncher/0.2.0")
+        .user_agent(concat!("BeeWorldLauncher/", env!("CARGO_PKG_VERSION")))
         .build()
-        .map_err(|e| Failure::plain(e.to_string()))?;
-    let bytes = client
-        .get("https://api.github.com/repos/EzYDark/BeeWorld/tags?per_page=100")
-        .send()
-        .and_then(|r| r.error_for_status())
-        .and_then(|r| r.bytes())
-        .map_err(|e| Failure::plain(format!("Could not check BeeWorld versions: {e}")))?;
-    let tags: Vec<serde_json::Value> = serde_json::from_slice(&bytes)?;
-    tags.iter()
-        .map(|tag| {
-            let sha = tag["commit"]["sha"]
-                .as_str()
-                .ok_or_else(|| Failure::plain("Tag is missing its commit."))?;
-            validate_sha(sha)?;
-            let label: String = tag["name"]
-                .as_str()
-                .unwrap_or("Unnamed version")
-                .chars()
-                .filter(|c| !c.is_control())
-                .take(80)
-                .collect();
-            Ok(Revision {
-                sha: sha.into(),
-                label,
-                date: String::new(),
-            })
-        })
-        .collect()
+        .map_err(|e| Failure::plain(e.to_string()))
+}
+fn pages(
+    client: &reqwest::blocking::Client,
+    endpoint: &str,
+) -> Result<Vec<serde_json::Value>, Failure> {
+    let mut rows = Vec::new();
+    for page in 1..=100 {
+        let bytes = client
+            .get(format!(
+                "https://api.github.com/repos/EzYDark/BeeWorld/{endpoint}?per_page=100&page={page}"
+            ))
+            .send()
+            .and_then(|r| r.error_for_status())
+            .and_then(|r| r.bytes())
+            .map_err(|e| Failure::plain(format!("Could not check BeeWorld releases: {e}")))?;
+        let batch: Vec<serde_json::Value> = serde_json::from_slice(&bytes)?;
+        let complete = batch.len() < 100;
+        rows.extend(batch);
+        if complete {
+            return Ok(rows);
+        }
+    }
+    Err(Failure::plain(
+        "Too many release pages. No version was selected.",
+    ))
+}
+pub fn catalogue() -> Result<Vec<Revision>, Failure> {
+    let client = client()?;
+    let releases = pages(&client, "releases")?;
+    if releases.is_empty() {
+        return Ok(Vec::new());
+    }
+    let tags = pages(&client, "tags")?;
+    release_catalogue(&releases, &tags)
+}
+fn release_catalogue(
+    releases: &[serde_json::Value],
+    tags: &[serde_json::Value],
+) -> Result<Vec<Revision>, Failure> {
+    let mut versions = Vec::new();
+    for release in releases {
+        if release["draft"].as_bool() != Some(false)
+            || release["prerelease"].as_bool() != Some(false)
+        {
+            continue;
+        }
+        let Some(date) = release["published_at"].as_str() else {
+            continue;
+        };
+        let name = release["tag_name"]
+            .as_str()
+            .ok_or_else(|| Failure::plain("Release is missing its tag."))?;
+        let sha = tags
+            .iter()
+            .find(|tag| tag["name"].as_str() == Some(name))
+            .and_then(|tag| tag["commit"]["sha"].as_str())
+            .ok_or_else(|| {
+                Failure::plain("A published release tag is unavailable. Try again later.")
+            })?;
+        validate_sha(sha)?;
+        versions.push(Revision {
+            sha: sha.into(),
+            label: name.chars().filter(|c| !c.is_control()).take(80).collect(),
+            date: date.into(),
+        });
+    }
+    versions.sort_by(|a, b| b.date.cmp(&a.date).then_with(|| a.label.cmp(&b.label)));
+    Ok(versions)
+}
+fn choose_release(versions: &[Revision], selected: Option<&Revision>) -> Result<Revision, Failure> {
+    if let Some(selected) = selected {
+        return versions.iter()
+            .find(|v| v.sha == selected.sha && v.label == selected.label)
+            .cloned()
+            .ok_or_else(|| Failure::plain("Your selected version is not a published stable release. Choose a release in Versions."));
+    }
+    versions.first().cloned().ok_or_else(|| {
+        Failure::plain(
+            "No stable BeeWorld release is available yet. Your installed version is kept.",
+        )
+    })
 }
 pub fn latest() -> Result<Revision, Failure> {
-    let client = reqwest::blocking::Client::builder()
-        .https_only(true)
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(25))
-        .user_agent("BeeWorldLauncher/0.2.0")
-        .build()
-        .map_err(|e| Failure::plain(e.to_string()))?;
-    let bytes = client
-        .get("https://api.github.com/repos/EzYDark/BeeWorld/commits?sha=master&per_page=1")
-        .send()
-        .and_then(|r| r.error_for_status())
-        .and_then(|r| r.bytes())
-        .map_err(|e| Failure::plain(format!("Could not check for updates: {e}")))?;
-    parse_catalogue(&bytes)?
-        .into_iter()
-        .next()
-        .ok_or_else(|| Failure::plain("No pack revisions found."))
+    choose_release(&catalogue()?, None)
 }
-
-fn parse_catalogue(bytes: &[u8]) -> Result<Vec<Revision>, Failure> {
-    let rows: Vec<serde_json::Value> = serde_json::from_slice(bytes)?;
-    rows.iter()
-        .map(|row| {
-            let sha = row["sha"]
-                .as_str()
-                .ok_or_else(|| Failure::plain("Version is missing its identifier."))?;
-            validate_sha(sha)?;
-            let date = row["commit"]["committer"]["date"]
-                .as_str()
-                .unwrap_or("")
-                .to_owned();
-            let message = row["commit"]["message"]
-                .as_str()
-                .unwrap_or("Repository revision")
-                .lines()
-                .next()
-                .unwrap_or("");
-            let message: String = message
-                .chars()
-                .filter(|c| !c.is_control())
-                .take(60)
-                .collect();
-            Ok(Revision {
-                sha: sha.to_owned(),
-                label: format!(
-                    "{} · {} · {}",
-                    date.get(..10).unwrap_or("Unknown date"),
-                    &sha[..7],
-                    message
-                ),
-                date,
-            })
-        })
-        .collect()
+pub fn desired(paths: &AppPaths, target: Target) -> Result<Revision, Failure> {
+    choose_release(&catalogue()?, Versions::read(paths)?.selected(target))
 }
 #[cfg(test)]
 mod tests {
@@ -224,13 +228,46 @@ mod tests {
         }
     }
     #[test]
-    fn remote_labels_cannot_contain_terminal_control_sequences() {
-        let bytes = format!(
-            r#"[{{"sha":"{}","commit":{{"message":"hello\u001b[31m\nmore","committer":{{"date":"2026-09-08T00:00:00Z"}}}}}}]"#,
-            "a".repeat(40)
+    fn only_published_stable_releases_are_available_newest_first() {
+        let tags = serde_json::json!([
+            {"name":"v1", "commit":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
+            {"name":"v2", "commit":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},
+            {"name":"draft", "commit":{"sha":"cccccccccccccccccccccccccccccccccccccccc"}},
+            {"name":"beta", "commit":{"sha":"dddddddddddddddddddddddddddddddddddddddd"}},
+            {"name":"tag-only", "commit":{"sha":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}}
+        ]);
+        let releases = serde_json::json!([
+            {"tag_name":"v1","draft":false,"prerelease":false,"published_at":"2026-09-01T00:00:00Z"},
+            {"tag_name":"draft","draft":true,"prerelease":false,"published_at":null},
+            {"tag_name":"beta","draft":false,"prerelease":true,"published_at":"2026-09-09T00:00:00Z"},
+            {"tag_name":"v2","draft":false,"prerelease":false,"published_at":"2026-09-08T00:00:00Z"}
+        ]);
+        let catalogue =
+            release_catalogue(releases.as_array().unwrap(), tags.as_array().unwrap()).unwrap();
+        assert_eq!(
+            catalogue
+                .iter()
+                .map(|v| v.label.as_str())
+                .collect::<Vec<_>>(),
+            ["v2", "v1"]
         );
-        let rows = parse_catalogue(bytes.as_bytes()).unwrap();
-        assert!(!rows[0].label.contains('\u{1b}'));
-        assert!(!rows[0].label.contains("more"));
+        assert_eq!(choose_release(&catalogue, None).unwrap().label, "v2");
+        assert_eq!(
+            choose_release(&catalogue, Some(&catalogue[1]))
+                .unwrap()
+                .label,
+            "v1"
+        );
+        assert!(choose_release(&catalogue, Some(&revision('e'))).is_err());
+        let mut moved_tag = catalogue[1].clone();
+        moved_tag.sha = "f".repeat(40);
+        assert!(choose_release(&catalogue, Some(&moved_tag)).is_err());
+        assert!(choose_release(&[], None).is_err());
+        assert!(
+            release_catalogue(&[], tags.as_array().unwrap())
+                .unwrap()
+                .is_empty()
+        );
+        assert!(release_catalogue(releases.as_array().unwrap(), &[]).is_err());
     }
 }

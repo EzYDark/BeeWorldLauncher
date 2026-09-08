@@ -1,6 +1,13 @@
 # Verification, 2026-09-08
 
-Current source is version 0.2.0. Build output: `target/release/BeeWorldLauncher.exe`.
+Current source is version 0.2.1. Build output: `target/release/BeeWorldLauncher.exe`.
+
+## Release-only pack selection
+
+- Both game and server resolve downloads against published stable GitHub releases. Plain tags, drafts, prereleases and branch-head changes cannot be selected. Releases are ordered by publication date; an explicit older release remains pinned.
+- Catalogue fixtures cover multiple releases, unpublished tags, draft/prerelease exclusion, an empty catalogue, missing tags and a moved tag. No-release results return an error rather than falling back to master.
+- Fresh game staging does not check out branch files before selecting the release commit. The real Git/LFS fixture now starts from an explicitly selected revision.
+- The live BeeWorld releases API returned zero releases during verification. Until the first stable release is published, real server install/update tests below intentionally stop before pack downloading. Their earlier startup/world-preservation results describe the 0.2.0 implementation.
 
 ## Passed
 
@@ -17,7 +24,7 @@ All writes used launcher source or isolated fixtures. The user's live BeeWorld i
 
 ## Limits
 
-- No launcher release is published yet, so the complete GitHub-release-to-installed-executable flow cannot be exercised against a real release. Replacement and version validation have local tests.
+- Launcher 0.2.0 is published. Its uploaded executable's GitHub SHA-256 digest matched the local build. Replacement and version validation have local tests; an in-place update of a user's running installation was not performed.
 - Offline account creation is verified; a complete modded client gameplay session is not.
 - Server startup and update preservation are verified; multiplayer gameplay and every mod interaction are not. The server emitted pack/mod warnings during startup. Server updates replace pack configuration folders but retain the previous complete server as a backup.
 - Default tests do not download dependencies. Private Java download fallback was not exercised because compatible Java 21 is installed on this PC.
