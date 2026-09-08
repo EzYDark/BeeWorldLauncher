@@ -1,4 +1,7 @@
+#[cfg(windows)]
 use crate::ui::WorkerEvent;
+#[cfg(target_os = "linux")]
+pub type WorkerEvent = String;
 use chrono::Local;
 use std::{
     fs::{self, File},
@@ -53,7 +56,10 @@ impl Logger {
             let _ = file.flush();
         }
         if let Some(events) = &self.events {
+            #[cfg(windows)]
             let _ = events.send(WorkerEvent::Log(clean));
+            #[cfg(target_os = "linux")]
+            let _ = events.send(clean);
         }
     }
 }

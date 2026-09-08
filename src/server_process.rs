@@ -1,9 +1,10 @@
 use crate::{app::Failure, system};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::{
     collections::VecDeque,
     fs::{self, File},
     io::{BufRead, BufReader, Write},
-    os::windows::process::CommandExt,
     path::Path,
     process::{Child, ChildStdin, Command, Stdio},
     sync::{
@@ -58,11 +59,17 @@ impl ServerProcess {
         let file = Arc::new(Mutex::new(
             fs::OpenOptions::new().create(true).append(true).open(log)?,
         ));
+        #[cfg(windows)]
+        command.creation_flags(0x08000000);
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .creation_flags(0x08000000)
             .spawn()?;
         let input = child.stdin.take();
         let stdout = child
@@ -155,11 +162,60 @@ impl ServerProcess {
         }
         Ok(status)
     }
+    #[cfg(any(windows, test))]
     pub fn output(&self) -> String {
         self.recent.iter().cloned().collect::<Vec<_>>().join("\n")
     }
 }
-#[cfg(test)]
+// On Linux a broken SSH/output pipe must not leave an unmanaged server behind.
+#[cfg(target_os = "linux")]
+impl Drop for ServerProcess {
+    fn drop(&mut self) {
+        if self.child.try_wait().ok().flatten().is_none() {
+            let _ = self.stop();
+            // Keep the runtime lock until Java has finished saving.
+            let _ = self.child.wait();
+        }
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+    #[test]
+    fn linux_console_preserves_literal_commands_and_excludes_concurrent_start() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("active");
+        fs::create_dir(&root).unwrap();
+        let log = temp.path().join("console.log");
+        let mut command = Command::new("sh");
+        command.args(["-c", "printf 'ready\\n'; while IFS= read -r line; do printf '%s\\n' \"$line\"; [ \"$line\" = stop ] && exit 0; done"]);
+        let mut server = ServerProcess::spawn(&mut command, &root, &log).unwrap();
+        assert!(ServerProcess::spawn(&mut Command::new("sh"), &root, &log).is_err());
+        server
+            .command("say $(touch /tmp/beeworld-should-not-exist)")
+            .unwrap();
+        server.stop().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(status) = server.poll().unwrap() {
+                assert!(status.success());
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(
+            server
+                .output()
+                .contains("say $(touch /tmp/beeworld-should-not-exist)")
+        );
+        assert!(fs::read_to_string(log).unwrap().contains("stop"));
+    }
+}
+
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
     #[test]

@@ -113,6 +113,15 @@ mod tests {
 }
 
 pub fn install(paths: &crate::app::AppPaths, ctx: &Context) -> Result<String, Failure> {
+    let revision = crate::versions::desired(paths, crate::versions::Target::Server)?;
+    install_revision(paths, ctx, revision)
+}
+
+fn install_revision(
+    paths: &crate::app::AppPaths,
+    ctx: &Context,
+    revision: crate::versions::Revision,
+) -> Result<String, Failure> {
     use crate::{
         dependencies,
         versions::{Target, Versions},
@@ -131,7 +140,6 @@ pub fn install(paths: &crate::app::AppPaths, ctx: &Context) -> Result<String, Fa
         ));
     }
     let mut settings = Versions::read(paths)?;
-    let revision = crate::versions::desired(paths, Target::Server)?;
     dependencies::ensure_tools(paths, ctx, &[0, 1])?;
     crate::versions::validate_sha(&revision.sha)?;
     system::checked(
@@ -259,6 +267,71 @@ pub fn install(paths: &crate::app::AppPaths, ctx: &Context) -> Result<String, Fa
         "Server ready with {count} mods. Choose Start server."
     ))
 }
+#[cfg(all(test, target_os = "linux"))]
+mod linux_tests {
+    use super::*;
+    use crate::{app::AppPaths, logger::Logger, server_process::ServerProcess, versions::Revision};
+    use std::{
+        sync::{Arc, atomic::AtomicBool},
+        time::{Duration, Instant},
+    };
+    #[test]
+    #[ignore = "Downloads a fixed pack revision into an isolated Linux fixture and runs Minecraft"]
+    fn linux_server_install_update_and_shutdown() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = AppPaths::new(temp.path().join("data")).unwrap();
+        let ctx = Context {
+            logger: Arc::new(Logger::new(&temp.path().join("logs"), None).unwrap()),
+            cancelled: Arc::new(AtomicBool::new(false)),
+        };
+        // Test-only revision injection: production installs still require a stable release.
+        let revision = Revision {
+            sha: "1340bf3029fe7e4e0766c25175a299d4870e2119".into(),
+            label: "Linux compatibility fixture".into(),
+            date: String::new(),
+        };
+        install_revision(&paths, &ctx, revision.clone()).unwrap();
+        let active = paths.data_dir.join("server/active");
+        let properties = "server-ip=127.0.0.1\nserver-port=25589\nview-distance=2\nsimulation-distance=2\nmax-players=2\nonline-mode=true\n";
+        fs::write(active.join("server.properties"), properties).unwrap();
+        let java = crate::java::server_java(&paths, &ctx).unwrap();
+        let mut server = ServerProcess::start(
+            &java,
+            &active,
+            &paths.data_dir.join("logs/server-console.log"),
+        )
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(180);
+        while !server.output().contains("Done (") {
+            assert!(server.poll().unwrap().is_none(), "{}", server.output());
+            assert!(Instant::now() < deadline, "{}", server.output());
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        server.command("list").unwrap();
+        server.stop().unwrap();
+        while server.poll().unwrap().is_none() {
+            assert!(Instant::now() < deadline, "Server failed to stop");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        assert!(server.output().contains("Saving"), "{}", server.output());
+        drop(server);
+        let world = fs::read(active.join("world/level.dat")).unwrap();
+        // Minecraft expands server.properties during its first launch.
+        let properties = fs::read_to_string(active.join("server.properties")).unwrap();
+        install_revision(&paths, &ctx, revision).unwrap();
+        assert_eq!(fs::read(active.join("world/level.dat")).unwrap(), world);
+        assert_eq!(
+            fs::read_to_string(active.join("server.properties")).unwrap(),
+            properties
+        );
+        assert!(!paths.instance_dir.exists());
+        println!(
+            "Linux fixture retained for CLI checks: {}",
+            temp.keep().display()
+        );
+    }
+}
+
 fn download_installer(destination: &Path) -> Result<(), Failure> {
     use sha2::{Digest, Sha256};
     const SHA: &str = "61e035bf7bf70153e127440ce34de47c9036f0a2d0c65d1529454bd35ceefe4f";
@@ -280,7 +353,7 @@ fn download_installer(destination: &Path) -> Result<(), Failure> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod live_tests {
     use super::*;
     #[test]

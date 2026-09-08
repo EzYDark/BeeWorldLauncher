@@ -1,9 +1,12 @@
 use crate::{app::Failure, logger::Logger};
+#[cfg(windows)]
 use std::os::windows::{fs::MetadataExt, process::CommandExt};
+#[cfg(windows)]
+use std::path::PathBuf;
 use std::{
     fs::{self, File, OpenOptions},
     io::{BufRead, BufReader, Read},
-    path::{Path, PathBuf},
+    path::Path,
     process::{Command, Stdio},
     sync::{
         Arc,
@@ -49,8 +52,14 @@ pub fn run_timeout(
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .creation_flags(0x08000000);
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
     let mut child = command.spawn()?;
     let stdout = child
         .stdout
@@ -70,11 +79,16 @@ pub fn run_timeout(
             }
             if ctx.cancelled.load(Ordering::Relaxed) || started.elapsed() > timeout {
                 // Kill only this command's tree, including Git's HTTP/LFS children.
+                #[cfg(windows)]
                 let _ = Command::new(windows_tool("taskkill.exe"))
                     .args(["/PID", &child.id().to_string(), "/T", "/F"])
                     .creation_flags(0x08000000)
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
+                    .status();
+                #[cfg(unix)]
+                let _ = Command::new("kill")
+                    .args(["-KILL", "--", &format!("-{}", child.id())])
                     .status();
                 let _ = child.kill();
                 let _ = child.wait();
@@ -128,16 +142,19 @@ pub fn checked(command: &mut Command, label: &str, ctx: &Context) -> Result<Stri
     }
     Ok(result.stdout)
 }
+#[cfg(windows)]
 pub fn windows_tool(name: &str) -> PathBuf {
     PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into()))
         .join("System32")
         .join(name)
 }
+#[cfg(windows)]
 pub fn powershell() -> Command {
     let mut command = Command::new(windows_tool(r"WindowsPowerShell\v1.0\powershell.exe"));
     command.args(["-NoProfile", "-NonInteractive", "-Command"]);
     command
 }
+#[cfg(windows)]
 pub fn ps_literal(path: &Path) -> String {
     format!("'{}'", path.to_string_lossy().replace('\'', "''"))
 }
@@ -147,7 +164,7 @@ pub fn ps_literal(path: &Path) -> String {
 pub fn no_links(path: &Path) -> Result<(), Failure> {
     for part in path.ancestors() {
         match fs::symlink_metadata(part) {
-            Ok(metadata) if metadata.file_attributes() & 0x400 != 0 => {
+            Ok(metadata) if is_link(&metadata) => {
                 return Err(Failure::plain(format!(
                     "Linked folders are not supported here: {}",
                     part.display()
@@ -159,6 +176,16 @@ pub fn no_links(path: &Path) -> Result<(), Failure> {
         }
     }
     Ok(())
+}
+fn is_link(metadata: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        metadata.file_attributes() & 0x400 != 0
+    }
+    #[cfg(not(windows))]
+    {
+        metadata.file_type().is_symlink()
+    }
 }
 pub fn copy_tree(source: &Path, destination: &Path, ctx: &Context) -> Result<(), Failure> {
     ctx.check()?;
@@ -216,6 +243,7 @@ pub fn lock(folder: &Path) -> Result<File, Failure> {
         .map_err(|_| Failure::plain("Another BeeWorld Launcher operation is using this folder."))?;
     Ok(file)
 }
+#[cfg(windows)]
 pub fn write_new(path: &Path, contents: &[u8]) -> Result<(), Failure> {
     use std::io::Write;
     no_links(path)?;

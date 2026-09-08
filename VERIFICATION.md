@@ -1,6 +1,23 @@
 # Verification, 2026-09-08
 
-Current source is version 0.2.1. Build output: `target/release/BeeWorldLauncher.exe`.
+Current source is version 0.3.0. Windows build output: `target/release/BeeWorldLauncher.exe`. Linux release uses the `x86_64-unknown-linux-musl` target.
+
+## Linux x64
+
+- Tested in an isolated headless Ubuntu 24.04 WSL2 environment, with Git, Git LFS and OpenJDK 21. No desktop or Prism was installed.
+- Both platforms pass Clippy with warnings denied. Windows: 51 regular tests. Linux: 7 regular tests plus the opt-in real-server installation/update test.
+- The real-server test installs a fixed pack revision, reaches Done, sends commands, stops Java, then reinstalls and compares saved world data and server.properties byte for byte. It passed in 131 seconds. Its first attempt compared properties against the pre-launch text; Minecraft legitimately expands that file. The corrected test compares the post-shutdown file.
+- The production static Linux executable installed published BeeWorld v5.0.0 through the normal release-only path. The installed receipt and selected version both report v5.0.0.
+- CLI checks ran the server with no stdin console and sent commands through its mode-0600 Unix socket. SIGTERM, SIGINT and the separate stop command each saved the world and returned exit code 0. The control socket was removed after exit.
+- The sample systemd unit passes systemd-analyze verification. Its shutdown signal behavior was exercised directly; WSL's test environment does not run systemd as PID 1.
+- The Linux binary has no ELF interpreter dependency and is statically linked with musl. Actual runtime testing was on Ubuntu 24.04 x64; this does not claim every Linux distribution has been tested.
+- Linux launcher updates are manual binary replacements. Pack updates retain explicit confirmation and EULA acceptance. System Git, Git LFS and Java are prerequisites; no package manager is invoked by the launcher.
+
+To repeat the real server fixture on Linux:
+
+```sh
+cargo test linux_server_install_update_and_shutdown -- --ignored --nocapture
+```
 
 ## Release-only pack selection
 

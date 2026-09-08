@@ -1,0 +1,19 @@
+[Unit]
+Description=BeeWorld Minecraft server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=beeworld
+Group=beeworld
+WorkingDirectory=/srv/beeworld
+ExecStart=/usr/local/bin/beeworld-server start --data-dir /srv/beeworld --yes --no-console
+KillMode=mixed
+TimeoutStopSec=180
+Restart=on-failure
+RestartSec=10
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

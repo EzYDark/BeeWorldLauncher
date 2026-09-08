@@ -1,18 +1,41 @@
-#[cfg(not(windows))]
-compile_error!("BeeWorld Launcher supports Windows only.");
+#[cfg(not(any(windows, all(target_os = "linux", target_arch = "x86_64"))))]
+compile_error!("BeeWorld Launcher supports Windows and Linux x64.");
+#[cfg(windows)]
 mod app;
+#[cfg(target_os = "linux")]
+#[path = "linux/app.rs"]
+mod app;
+#[cfg(windows)]
 mod dependencies;
+#[cfg(target_os = "linux")]
+#[path = "linux/dependencies.rs"]
+mod dependencies;
+#[cfg(windows)]
 mod install;
+#[cfg(windows)]
 mod java;
+#[cfg(target_os = "linux")]
+#[path = "linux/java.rs"]
+mod java;
+#[cfg(target_os = "linux")]
+mod linux;
 mod logger;
+#[cfg(windows)]
 mod migration;
+#[cfg(windows)]
 mod self_update;
 mod server;
 mod server_process;
 mod system;
+#[cfg(windows)]
 mod transaction;
+#[cfg(windows)]
 mod ui;
 mod versions;
+#[cfg(windows)]
+mod workflow;
+#[cfg(target_os = "linux")]
+#[path = "linux/workflow.rs"]
 mod workflow;
 
 fn main() {
@@ -22,6 +45,12 @@ fn main() {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn run() -> Result<(), Box<dyn std::error::Error>> {
+    linux::run()
+}
+
+#[cfg(windows)]
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let options = app::Options::parse(std::env::args_os().skip(1))?;
     if options.help {

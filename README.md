@@ -1,6 +1,8 @@
 # BeeWorld Launcher
 
-Windows launcher for the [BeeWorld pack](https://github.com/EzYDark/BeeWorld). Source and launcher releases belong in [EzYDark/BeeWorldLauncher](https://github.com/EzYDark/BeeWorldLauncher).
+Windows launcher and Linux x64 headless server manager for the [BeeWorld pack](https://github.com/EzYDark/BeeWorld). Source and launcher releases belong in [EzYDark/BeeWorldLauncher](https://github.com/EzYDark/BeeWorldLauncher).
+
+Linux setup and background service instructions: [LINUX.md](LINUX.md).
 
 ## Start here
 

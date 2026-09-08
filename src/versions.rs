@@ -183,6 +183,7 @@ fn choose_release(versions: &[Revision], selected: Option<&Revision>) -> Result<
         )
     })
 }
+#[cfg(windows)]
 pub fn latest() -> Result<Revision, Failure> {
     choose_release(&catalogue()?, None)
 }
