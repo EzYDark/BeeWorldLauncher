@@ -36,7 +36,17 @@ A named release stays selected. Latest follows the newest stable publication. St
 
 Stop the server before updating. Worlds and server.properties are kept; pack configuration is replaced. A complete previous-server backup stays under `server/backup-*`.
 
-To update the launcher executable, download a new Linux release and replace the binary while it is stopped. Linux does not use the Windows self-update helper.
+The menu and server startup check for launcher updates too. Choose **Update launcher**, or run:
+
+```sh
+./beeworld-server update-launcher
+```
+
+Confirm the update when asked. For an explicitly approved unattended update, add `--yes`. The launcher verifies GitHub's SHA-256 checksum, replaces its executable atomically and keeps `beeworld-server.update-old` as a backup. Reopen the launcher to use the new version. An already running server is not interrupted.
+
+The account running the update needs write access to the executable's folder. For the root-owned systemd installation below, use `sudo /usr/local/bin/beeworld-server update-launcher`, then restart the service when convenient. Server data is not changed by a launcher update.
+
+Version 0.3.0 needs one manual upgrade to 0.3.1 to gain this feature.
 
 ## Data and commands from another session
 

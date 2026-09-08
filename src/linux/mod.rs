@@ -5,6 +5,7 @@ use crate::{
     system::{self, Context},
     versions::{self, Target, Versions},
 };
+mod update;
 use std::{
     fs,
     io::{self, BufRead, IsTerminal, Read, Seek, SeekFrom, Write},
@@ -56,7 +57,7 @@ impl Options {
                 }
                 "--help" | "-h" => options.command = "help".into(),
                 "install" | "update" | "start" | "status" | "versions" | "logs" | "help"
-                | "command" | "stop"
+                | "command" | "stop" | "update-launcher"
                     if options.command.is_empty() =>
                 {
                     options.command = arg
@@ -97,23 +98,25 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         help();
         return Ok(());
     }
+    launcher_notice();
     loop {
         println!(
-            "\nBeeWorld server\n1. Start\n2. Install or update\n3. Versions\n4. Status\n5. Quit"
+            "\nBeeWorld server\n1. Start\n2. Install or update\n3. Versions\n4. Status\n5. Update launcher\n6. Quit"
         );
         match read_line("Choose: ")?.as_str() {
             "1" => options.command = "start".into(),
             "2" => options.command = "install".into(),
             "3" => options.command = "versions".into(),
             "4" => options.command = "status".into(),
-            "5" | "" => break,
+            "5" => options.command = "update-launcher".into(),
+            "6" | "" => break,
             _ => continue,
         }
         if let Err(error) = dispatch(&paths, &options) {
             eprintln!("{error}");
         }
         // The console owns stdin until process exit.
-        if options.command == "start" {
+        if matches!(options.command.as_str(), "start" | "update-launcher") {
             break;
         }
     }
@@ -121,7 +124,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 fn help() {
     println!(
-        "BeeWorld server for Linux x64\n\nOpen without arguments for the menu.\n\ninstall / update   Install a stable release after confirmation\nstart              Check updates, then run the server and console\nversions           List stable releases\nstatus             Show installed and selected versions\nlogs               Print recent server logs\ncommand            Send --command \"list\" to a running server\nstop               Save and stop a running server\n\n--data-dir PATH    Choose the data folder\n--version TAG      Select a release for install/update, or latest\n--yes              Confirm this operation without a prompt\n--accept-eula      Accept https://www.minecraft.net/eula for installation\n--no-console       Run without stdin commands, suitable for a service\n\nRequires Git, Git LFS and Java 21 x64. Ctrl+C or SIGTERM stops the server cleanly."
+        "BeeWorld server for Linux x64\n\nOpen without arguments for the menu.\n\ninstall / update   Install a stable release after confirmation\nupdate-launcher    Update this executable after confirmation\nstart              Check updates, then run the server and console\nversions           List stable releases\nstatus             Show installed and selected versions\nlogs               Print recent server logs\ncommand            Send --command \"list\" to a running server\nstop               Save and stop a running server\n\n--data-dir PATH    Choose the data folder\n--version TAG      Select a release for install/update, or latest\n--yes              Confirm this operation without a prompt\n--accept-eula      Accept https://www.minecraft.net/eula for installation\n--no-console       Run without stdin commands, suitable for a service\n\nRequires Git, Git LFS and Java 21 x64. Ctrl+C or SIGTERM stops the server cleanly."
     );
 }
 fn read_line(prompt: &str) -> Result<String, Failure> {
@@ -151,6 +154,21 @@ fn context(paths: &AppPaths) -> Result<Context, Failure> {
 }
 fn dispatch(paths: &AppPaths, options: &Options) -> Result<(), Failure> {
     match options.command.as_str() {
+        "update-launcher" => {
+            let Some(release) = crate::self_update::check()? else {
+                println!("The launcher is up to date.");
+                return Ok(());
+            };
+            if confirm(
+                options,
+                &format!(
+                    "Update launcher to {}? The previous executable will be kept as a backup.",
+                    release.tag_name
+                ),
+            )? {
+                update::install(&release)?;
+            }
+        }
         "command" | "stop" => {
             let command = if options.command == "stop" {
                 "stop"
@@ -262,6 +280,7 @@ fn dispatch(paths: &AppPaths, options: &Options) -> Result<(), Failure> {
             println!("{}", crate::server::install(paths, &ctx)?);
         }
         "start" => {
+            launcher_notice();
             let settings = Versions::read(paths)?;
             match versions::desired(paths, Target::Server) {
                 Ok(desired)
@@ -290,6 +309,15 @@ fn dispatch(paths: &AppPaths, options: &Options) -> Result<(), Failure> {
         _ => help(),
     }
     Ok(())
+}
+fn launcher_notice() {
+    if let Ok(Some(release)) = crate::self_update::check() {
+        println!(
+            "Launcher {} is available. Choose Update launcher or run update-launcher. {}",
+            release.tag_name,
+            crate::self_update::RELEASES_URL
+        );
+    }
 }
 fn run_server(paths: &AppPaths, no_console: bool) -> Result<(), Failure> {
     use std::os::unix::{fs::PermissionsExt, net::UnixListener};

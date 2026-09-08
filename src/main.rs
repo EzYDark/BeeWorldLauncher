@@ -22,7 +22,6 @@ mod linux;
 mod logger;
 #[cfg(windows)]
 mod migration;
-#[cfg(windows)]
 mod self_update;
 mod server;
 mod server_process;

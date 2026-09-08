@@ -1,6 +1,16 @@
 # Verification, 2026-09-08
 
-Current source is version 0.3.0. Windows build output: `target/release/BeeWorldLauncher.exe`. Linux release uses the `x86_64-unknown-linux-musl` target.
+Current source is version 0.3.1. Windows build output: `target/release/BeeWorldLauncher.exe`. Linux release uses the `x86_64-unknown-linux-musl` target.
+
+## Linux launcher self-update
+
+- Linux now checks for launcher updates in the menu and before server start. Update launcher requires separate confirmation, or explicit `update-launcher --yes`.
+- Shared release downloads verify the asset's size and SHA-256 digest. Linux reads only the regular `beeworld-server` archive entry and validates its ELF x64 header.
+- Replacement uses a new file beside the executable, retains the old inode as `.update-old`, preserves ownership and executable permissions, and atomically renames the verified replacement. Running processes keep their existing executable inode.
+- 11 Linux tests pass, with two opt-in integration tests. Replacement, archive rejection and interrupted-staging tests also passed as unprivileged nobody.
+- The opt-in published-archive test downloaded v0.3.0, rejected an intentionally wrong checksum, installed the verified archive into a fixture and executed its help command.
+- A separate copy of the current updater was built with test version 0.2.9. Its real command refused an unconfirmed update without creating staging data, then downloaded v0.3.0 with `--yes`, replaced itself and retained an exact previous-binary backup. The installed bytes matched the published archive and the world fixture was unchanged. This test-version build is not distributed.
+- Existing Linux 0.3.0 users need one manual upgrade to obtain the updater. Root-owned installations require the owner/root to perform launcher replacement; no automatic elevation is attempted.
 
 ## Linux x64
 
@@ -11,7 +21,7 @@ Current source is version 0.3.0. Windows build output: `target/release/BeeWorldL
 - CLI checks ran the server with no stdin console and sent commands through its mode-0600 Unix socket. SIGTERM, SIGINT and the separate stop command each saved the world and returned exit code 0. The control socket was removed after exit.
 - The sample systemd unit passes systemd-analyze verification. Its shutdown signal behavior was exercised directly; WSL's test environment does not run systemd as PID 1.
 - The Linux binary has no ELF interpreter dependency and is statically linked with musl. Actual runtime testing was on Ubuntu 24.04 x64; this does not claim every Linux distribution has been tested.
-- Linux launcher updates are manual binary replacements. Pack updates retain explicit confirmation and EULA acceptance. System Git, Git LFS and Java are prerequisites; no package manager is invoked by the launcher.
+- Version 0.3.0 used manual launcher replacement; 0.3.1 adds the updater described above. Pack updates retain explicit confirmation and EULA acceptance. System Git, Git LFS and Java are prerequisites; no package manager is invoked by the launcher.
 
 To repeat the real server fixture on Linux:
 

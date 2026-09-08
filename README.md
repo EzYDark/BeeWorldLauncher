@@ -47,7 +47,7 @@ Opt-in integration tests and current verification limits are documented in [VERI
 
 ## Publish versions
 
-For launcher updates, publish a stable GitHub Release such as `v0.3.0`, with `BeeWorldLauncher.exe` attached. Its numeric version must exceed the running Cargo package version. The updater requires GitHub's SHA-256 asset digest and verifies the download before replacing the executable after exit. It keeps the previous executable as `.update-old`.
+For launcher updates, publish a stable GitHub Release with `BeeWorldLauncher.exe` for Windows and `BeeWorldLauncher-linux-x64.tar.gz` for Linux. The Linux archive must contain the regular executable file `beeworld-server`. The release's numeric version must exceed the running Cargo package version. Both platforms require confirmation and verify GitHub's SHA-256 asset digest. Windows replaces the executable after exit; Linux replaces it atomically and uses the new version on the next start. Both keep a `.update-old` backup.
 
 Publish a stable GitHub Release with its version tag in **EzYDark/BeeWorld**, independently of launcher releases. A tag alone is not enough. No attached ZIP is required: the launcher installs the repository snapshot at that release tag, including Git LFS files. Until a stable release exists, new game/server downloads and updates stop; an already installed version can still be started. Saved selections must still match a published release's tag and commit before downloading.
 

@@ -65,8 +65,10 @@ pub fn download(
     let asset = release
         .assets
         .iter()
-        .find(|a| a.name == "BeeWorldLauncher.exe")
-        .ok_or_else(|| Failure::plain("This release has no Windows launcher executable."))?;
+        .find(|a| a.name == asset_name())
+        .ok_or_else(|| {
+            Failure::plain("This release has no launcher download for this platform.")
+        })?;
     if !asset
         .browser_download_url
         .starts_with("https://github.com/EzYDark/BeeWorldLauncher/releases/download/")
@@ -86,6 +88,7 @@ pub fn download(
     crate::system::no_links(&directory)?;
     std::fs::create_dir_all(&directory)?;
     let temporary = directory.join("download.tmp");
+    crate::system::no_links(&temporary)?;
     let client = reqwest::blocking::Client::builder()
         .https_only(true)
         .timeout(Duration::from_secs(180))
@@ -118,11 +121,24 @@ pub fn download(
     if bytes != asset.size || format!("{:x}", hasher.finalize()) != digest {
         return Err(Failure::plain("Launcher download checksum failed."));
     }
-    let ready = directory.join("BeeWorldLauncher.exe");
+    let ready = directory.join(asset_name());
+    crate::system::no_links(&ready)?;
     std::fs::rename(temporary, &ready)?;
     Ok(ready)
 }
 
+fn asset_name() -> &'static str {
+    #[cfg(windows)]
+    {
+        "BeeWorldLauncher.exe"
+    }
+    #[cfg(target_os = "linux")]
+    {
+        "BeeWorldLauncher-linux-x64.tar.gz"
+    }
+}
+
+#[cfg(windows)]
 pub fn schedule_replace(
     source: &std::path::Path,
     destination: &std::path::Path,
@@ -139,6 +155,7 @@ pub fn schedule_replace(
         .spawn()?;
     Ok(())
 }
+#[cfg(windows)]
 fn replacement_script(source: &std::path::Path, destination: &std::path::Path, pid: u32) -> String {
     format!(
         r#"$ErrorActionPreference='Stop'; Wait-Process -Id {pid} -ErrorAction SilentlyContinue;
@@ -158,6 +175,7 @@ try {{
 mod tests {
     use super::*;
     #[test]
+    #[cfg(windows)]
     fn replacement_waits_for_exit_and_keeps_previous_executable() {
         use std::{fs, os::windows::process::CommandExt, process::Stdio};
         let temp = tempfile::tempdir().unwrap();
